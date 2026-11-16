@@ -246,7 +246,7 @@ class SnakeGame:
 
     def get_fitness(self):
         """Calcula la puntuación de aptitud para el Algoritmo Genético."""
-        return self.steps + (self.score * 100)
+        return (self.score ** 2) * 1000 + (self.score * 500) + (self.steps * 0.5)
     
     def _draw_snake(self):
         """Dibuja la serpiente con degradado de color y ojos orientados."""
