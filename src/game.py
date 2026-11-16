@@ -11,32 +11,57 @@ class Direction(Enum):
     UP = 3
 
 Point = namedtuple('Point', 'x, y')
-BLACK = (20, 20, 20)
-WHITE = (255, 255, 255)
-RED = (220, 50, 50)
-GREEN_HEAD = (50, 220, 100)
-GREEN_BODY = (30, 170, 70)
-GRID_COLOR = (35, 35, 35)
 
-BLOCK_SIZE = 20
+BG_COLOR = (18, 20, 24)
+PANEL_COLOR = (28, 32, 38)
+GRID_COLOR = (30, 34, 40)
+BORDER_COLOR = (60, 68, 80)
+
+WHITE = (240, 244, 248)
+GRAY = (140, 150, 165)
+ACCENT_BLUE = (65, 155, 249)
+ACCENT_YELLOW = (250, 200, 50)
+DANGER_RED = (235, 75, 75)
+FOOD_RED = (240, 65, 80)
+FOOD_LEAF = (80, 210, 100)
+
+SNAKE_HEAD = (50, 230, 120)
+SNAKE_BODY_START = (40, 195, 100)
+SNAKE_BODY_END = (20, 110, 60)
+
+BLOCK_SIZE = 22
 GRID_WIDTH = 20
 GRID_HEIGHT = 20
-
+PANEL_WIDTH = 240
 class SnakeGame:
     def __init__(self, render=True, speed=15):
         self.render = render
         self.speed = speed
-        self.width = GRID_WIDTH * BLOCK_SIZE
-        self.height = GRID_HEIGHT * BLOCK_SIZE
+        self.paused = False
+        self.board_width = GRID_WIDTH * BLOCK_SIZE
+        self.board_height = GRID_HEIGHT * BLOCK_SIZE
+        self.total_width = self.board_width + PANEL_WIDTH
+        
+        self.generation = 1
+        self.best_score = 0
+        self.individual = 1
 
         if self.render:
             pygame.init()
-            self.display = pygame.display.set_mode((self.width, self.height))
+            self.display = pygame.display.set_mode((self.total_width, self.board_height))
             pygame.display.set_caption('Snake - Neuroevolution')
             self.clock = pygame.time.Clock()
-            self.font = pygame.font.SysFont('arial', 18)
+            self.font_title = pygame.font.SysFont('segoeui', 20, bold=True)
+            self.font_main = pygame.font.SysFont('segoeui', 16)
+            self.font_small = pygame.font.SysFont('segoeui', 13)
 
         self.reset()
+    
+    def set_training_info(self, generation, best_score, individual=1):
+        """Permite a main.py pasar datos de la evolución para mostrarlos en pantalla."""
+        self.generation = generation
+        self.best_score = best_score
+        self.individual = individual
 
     def reset(self):
         """Reinicia el juego al estado inicial."""
@@ -71,7 +96,7 @@ class SnakeGame:
         if pt is None:
             pt = self.head
         # Choque con paredes
-        if pt.x >= self.width or pt.x < 0 or pt.y >= self.height or pt.y < 0:
+        if pt.x >= self.board_width or pt.x < 0 or pt.y >= self.board_height or pt.y < 0:
             return True
         # Choque consigo misma
         if pt in self.snake[1:]:
@@ -129,6 +154,30 @@ class SnakeGame:
         ]
 
         return np.array(state, dtype=int)
+    
+    def _handle_events(self):
+        """Gestiona cierre de ventana y controles de velocidad/pausa en directo."""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    self.paused = not self.paused
+                elif event.key == pygame.K_UP:
+                    self.speed = min(120, self.speed + 5)
+                elif event.key == pygame.K_DOWN:
+                    self.speed = max(5, self.speed - 5)
+
+        while self.paused:
+            self._update_ui()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    quit()
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                    self.paused = False
+            self.clock.tick(10)
 
     def step(self, action):
         """
@@ -140,10 +189,7 @@ class SnakeGame:
         self.steps_without_food += 1
 
         if self.render:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    quit()
+            self._handle_events()
 
         # Actualizar dirección
         self._move(action)
@@ -158,6 +204,8 @@ class SnakeGame:
         if self.head == self.food:
             self.score += 1
             self.steps_without_food = 0
+            if self.score > self.best_score:
+                self.best_score = self.score
             self._place_food()
         else:
             self.snake.pop()
@@ -199,35 +247,128 @@ class SnakeGame:
     def get_fitness(self):
         """Calcula la puntuación de aptitud para el Algoritmo Genético."""
         return self.steps + (self.score * 100)
+    
+    def _draw_snake(self):
+        """Dibuja la serpiente con degradado de color y ojos orientados."""
+        total = len(self.snake)
+        for i, pt in enumerate(self.snake):
+            if i == 0:
+                color = SNAKE_HEAD
+            else:
+                ratio = i / max(total, 1)
+                r = int(SNAKE_BODY_START[0] * (1 - ratio) + SNAKE_BODY_END[0] * ratio)
+                g = int(SNAKE_BODY_START[1] * (1 - ratio) + SNAKE_BODY_END[1] * ratio)
+                b = int(SNAKE_BODY_START[2] * (1 - ratio) + SNAKE_BODY_END[2] * ratio)
+                color = (r, g, b)
+
+            rect = pygame.Rect(pt.x + 1, pt.y + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2)
+            pygame.draw.rect(self.display, color, rect, border_radius=5)
+
+            # Dibujar ojos en la cabeza
+            if i == 0:
+                eye_r = 2
+                if self.direction == Direction.RIGHT:
+                    e1, e2 = (pt.x + 15, pt.y + 6), (pt.x + 15, pt.y + 15)
+                elif self.direction == Direction.LEFT:
+                    e1, e2 = (pt.x + 6, pt.y + 6), (pt.x + 6, pt.y + 15)
+                elif self.direction == Direction.UP:
+                    e1, e2 = (pt.x + 6, pt.y + 6), (pt.x + 15, pt.y + 6)
+                else:
+                    e1, e2 = (pt.x + 6, pt.y + 15), (pt.x + 15, pt.y + 15)
+                pygame.draw.circle(self.display, BG_COLOR, e1, eye_r)
+                pygame.draw.circle(self.display, BG_COLOR, e2, eye_r)
+
+    def _draw_food(self):
+        """Dibuja una manzana redondeada con un pequeño tallo verde."""
+        center = (self.food.x + BLOCK_SIZE // 2, self.food.y + BLOCK_SIZE // 2)
+        pygame.draw.circle(self.display, FOOD_RED, center, BLOCK_SIZE // 2 - 2)
+        leaf_rect = pygame.Rect(self.food.x + BLOCK_SIZE // 2, self.food.y + 2, 5, 4)
+        pygame.draw.ellipse(self.display, FOOD_LEAF, leaf_rect)
+
+    def _draw_panel(self):
+        """Dibuja el panel lateral con estadísticas y sensores en vivo."""
+        panel_x = self.board_width
+        pygame.draw.rect(self.display, PANEL_COLOR, (panel_x, 0, PANEL_WIDTH, self.board_height))
+        pygame.draw.line(self.display, BORDER_COLOR, (panel_x, 0), (panel_x, self.board_height), 2)
+
+        x_pad = panel_x + 18
+        y = 18
+
+        # Título
+        title = self.font_title.render("NEURO-SNAKE", True, ACCENT_BLUE)
+        self.display.blit(title, (x_pad, y))
+        y += 38
+
+        # Métricas principales
+        metrics = [
+            (f"Generación:  {self.generation}", WHITE),
+            (f"Individuo:    #{self.individual}", GRAY),
+            (f"Manzanas:   {self.score}", SNAKE_HEAD),
+            (f"Récord:        {self.best_score}", ACCENT_YELLOW),
+            (f"Fitness:       {self.get_fitness()}", WHITE),
+        ]
+        for text_str, color in metrics:
+            surf = self.font_main.render(text_str, True, color)
+            self.display.blit(surf, (x_pad, y))
+            y += 26
+
+        # Barra de energía (pasos restantes antes de morir de hambre)
+        y += 8
+        max_steps = 100 * len(self.snake)
+        energy_ratio = max(0.0, 1.0 - (self.steps_without_food / max_steps))
+        lbl_energy = self.font_small.render("Energía restante:", True, GRAY)
+        self.display.blit(lbl_energy, (x_pad, y))
+        y += 18
+        pygame.draw.rect(self.display, BG_COLOR, (x_pad, y, PANEL_WIDTH - 36, 10), border_radius=4)
+        bar_color = SNAKE_HEAD if energy_ratio > 0.3 else DANGER_RED
+        pygame.draw.rect(self.display, bar_color, (x_pad, y, int((PANEL_WIDTH - 36) * energy_ratio), 10), border_radius=4)
+        y += 24
+
+        # Visualizador de sensores en tiempo real
+        state = self.get_state()
+        lbl_sens = self.font_small.render("Sensores de peligro:", True, GRAY)
+        self.display.blit(lbl_sens, (x_pad, y))
+        y += 20
+
+        dangers = [("Recto", state[0]), ("Der", state[1]), ("Izq", state[2])]
+        for idx, (name, active) in enumerate(dangers):
+            bx = x_pad + idx * 68
+            box_color = DANGER_RED if active else BG_COLOR
+            pygame.draw.rect(self.display, box_color, (bx, y, 60, 24), border_radius=4)
+            txt = self.font_small.render(name, True, WHITE)
+            self.display.blit(txt, (bx + 12, y + 4))
+        y += 42
+
+        # Controles en vivo
+        pygame.draw.line(self.display, BORDER_COLOR, (x_pad, y), (panel_x + PANEL_WIDTH - 18, y), 1)
+        y += 12
+        status = "PAUSADO (Espacio)" if self.paused else f"Velocidad: {self.speed} FPS"
+        ctrl1 = self.font_small.render(status, True, ACCENT_YELLOW if self.paused else GRAY)
+        ctrl2 = self.font_small.render("Flechas Arr/Abj: Velocidad", True, GRAY)
+        self.display.blit(ctrl1, (x_pad, y))
+        self.display.blit(ctrl2, (x_pad, y + 18))
 
     def _update_ui(self):
         """Dibuja el tablero, la serpiente y la manzana."""
-        self.display.fill(BLACK)
+        self.display.fill(BG_COLOR)
 
         # Cuadrícula sutil de fondo
-        for x in range(0, self.width, BLOCK_SIZE):
-            pygame.draw.line(self.display, GRID_COLOR, (x, 0), (x, self.height))
-        for y in range(0, self.height, BLOCK_SIZE):
-            pygame.draw.line(self.display, GRID_COLOR, (0, y), (self.width, y))
+        for x in range(0, self.board_width, BLOCK_SIZE):
+            pygame.draw.line(self.display, GRID_COLOR, (x, 0), (x, self.board_height))
+        for y in range(0, self.board_height, BLOCK_SIZE):
+            pygame.draw.line(self.display, GRID_COLOR, (0, y), (self.board_width, y))
 
-        # Dibujar serpiente
-        for i, pt in enumerate(self.snake):
-            color = GREEN_HEAD if i == 0 else GREEN_BODY
-            pygame.draw.rect(self.display, color, pygame.Rect(pt.x, pt.y, BLOCK_SIZE, BLOCK_SIZE))
-            pygame.draw.rect(self.display, BLACK, pygame.Rect(pt.x, pt.y, BLOCK_SIZE, BLOCK_SIZE), 1)
+        self._draw_food()
+        self._draw_snake()
+        self._draw_panel()
 
-        # Dibujar manzana
-        pygame.draw.rect(self.display, RED, pygame.Rect(self.food.x, self.food.y, BLOCK_SIZE, BLOCK_SIZE))
-
-        # Marcador
-        text = self.font.render(f"Score: {self.score} | Steps: {self.steps}", True, WHITE)
-        self.display.blit(text, [5, 5])
         pygame.display.flip()
 
 
 # --- BLOQUE DE PRUEBA (Se ejecuta solo si lanzas este archivo directamente) ---
 if __name__ == '__main__':
-    game = SnakeGame(render=True, speed=10)
+    game = SnakeGame(render=True, speed=12)
+    game.set_training_info(generation=1, best_score=0, individual=1)
     game_over = False
 
     while not game_over:
