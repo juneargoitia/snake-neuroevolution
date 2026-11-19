@@ -2,7 +2,7 @@ import numpy as np
 
 
 class NeuralNetwork:
-    def __init__(self, input_size=11, hidden_size=16, output_size=3):
+    def __init__(self, input_size=8, hidden_size=16, output_size=3):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
