@@ -35,7 +35,11 @@ La red devuelve 3 posibles acciones: `0` (seguir recto), `1` (girar 90° a la de
 ### 3. Algoritmo Genético y Función Objetivo (`src/genetic_algorithm.py`)
 * **Población y Evolución:** 150 individuos por generación durante 100 generaciones, con selección elitista del 15%, cruce uniforme (50% de genes de cada progenitor) y mutación gaussiana ($p = 0.08$, $\sigma = 0.3$).
 * **Función de Fitness:** Diseñada para premiar exponencialmente la recolección de manzanas y las trayectorias directas, penalizando el alejamiento y los pasos innecesarios para evitar bucles:
-  $$\text{Fitness} = \max\left(0,\; (\text{manzanas}^2 \times 1000) + (\text{manzanas} \times 500) + \text{bonus\_acercamiento} - (\text{pasos} \times 0.2)\right)$$
+
+$$
+\text{Fitness} = \max\left(0,\; (\text{manzanas}^2 \times 1000) + (\text{manzanas} \times 500) + \text{bonus acercamiento} - (\text{pasos} \times 0.2)\right)
+$$
+
 * **Control anti-bucles:** Límite dinámico de pasos sin comer ($100 \times \text{longitud}$).
 
 ---
