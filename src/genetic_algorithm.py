@@ -1,6 +1,5 @@
 import numpy as np
-import os
-from neural_network import NeuralNetwork
+from src.neural_network import NeuralNetwork
 
 
 class GeneticAlgorithm:
@@ -10,7 +9,7 @@ class GeneticAlgorithm:
         elite_fraction=0.2,
         mutation_rate=0.05,
         mutation_strength=0.2,
-        input_size=12,
+        input_size=8,
         hidden_size=16,
         output_size=3,
     ):
@@ -63,7 +62,6 @@ class GeneticAlgorithm:
             parent2 = elite_chromosomes[idx2]
 
             child_weights = self._crossover(parent1, parent2)
-
             child_weights = self._mutate(child_weights)
 
             child_net = NeuralNetwork(self.input_size, self.hidden_size, self.output_size)
@@ -87,7 +85,6 @@ class GeneticAlgorithm:
 
     def save_best_model(self, filepath="models/best_brain.npy"):
         if self.best_overall_weights is not None:
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             np.save(filepath, self.best_overall_weights)
 
     def load_model(self, filepath="models/best_brain.npy"):

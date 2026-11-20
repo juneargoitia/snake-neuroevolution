@@ -33,6 +33,9 @@ BLOCK_SIZE = 22
 GRID_WIDTH = 20
 GRID_HEIGHT = 20
 PANEL_WIDTH = 240
+SCORE_W = 1000
+SHAPING_W = 20
+
 class SnakeGame:
     def __init__(self, render=True, speed=15):
         self.render = render
@@ -63,36 +66,36 @@ class SnakeGame:
         self.individual = individual
 
     def reset(self):
-        self.direction = random.choice(list(Direction))
+        self.direction = Direction.RIGHT
         
         start_x = (GRID_WIDTH // 2) * BLOCK_SIZE
         start_y = (GRID_HEIGHT // 2) * BLOCK_SIZE
         self.head = Point(start_x, start_y)
-
-        if self.direction == Direction.RIGHT:
-            self.snake = [self.head, Point(start_x - BLOCK_SIZE, start_y), Point(start_x - 2 * BLOCK_SIZE, start_y)]
-        elif self.direction == Direction.LEFT:
-            self.snake = [self.head, Point(start_x + BLOCK_SIZE, start_y), Point(start_x + 2 * BLOCK_SIZE, start_y)]
-        elif self.direction == Direction.DOWN:
-            self.snake = [self.head, Point(start_x, start_y - BLOCK_SIZE), Point(start_x, start_y - 2 * BLOCK_SIZE)]
-        else:
-            self.snake = [self.head, Point(start_x, start_y + BLOCK_SIZE), Point(start_x, start_y + 2 * BLOCK_SIZE)]
+        self.snake = [
+            self.head,
+            Point(self.head.x - BLOCK_SIZE, self.head.y),
+            Point(self.head.x - (2 * BLOCK_SIZE), self.head.y)
+        ]
 
         self.score = 0
         self.steps = 0
         self.steps_without_food = 0
-        self.approach_score = 0.0
+        self.shaping = 0.0
         self.food = None
         self._place_food()
-        self.prev_dist = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
+        
+        self.prev_distance = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
+        self.distance_reward = 0.0
 
     def _place_food(self):
-        while True:
-            x = random.randint(0, GRID_WIDTH - 1) * BLOCK_SIZE
-            y = random.randint(0, GRID_HEIGHT - 1) * BLOCK_SIZE
-            self.food = Point(x, y)
-            if self.food not in self.snake:
-                break
+        occupied = set(self.snake)
+        free = [
+            Point(x * BLOCK_SIZE, y * BLOCK_SIZE)
+            for x in range(GRID_WIDTH)
+            for y in range(GRID_HEIGHT)
+            if Point(x * BLOCK_SIZE, y * BLOCK_SIZE) not in occupied
+        ]
+        self.food = random.choice(free) if free else Point(-BLOCK_SIZE, -BLOCK_SIZE)
 
     def is_collision(self, pt=None):
         if pt is None:
@@ -103,66 +106,44 @@ class SnakeGame:
             return True
         return False
 
+    def _ray(self, dx, dy):
+        pt = self.head
+        dist = 0
+        while True:
+            pt = Point(pt.x + dx * BLOCK_SIZE, pt.y + dy * BLOCK_SIZE)
+            dist += 1
+            if self.is_collision(pt):
+                return 1.0 / dist
+
     def get_state(self):
-        head = self.head
-        point_l = Point(head.x - BLOCK_SIZE, head.y)
-        point_r = Point(head.x + BLOCK_SIZE, head.y)
-        point_u = Point(head.x, head.y - BLOCK_SIZE)
-        point_d = Point(head.x, head.y + BLOCK_SIZE)
+        fx, fy = {
+            Direction.RIGHT: (1, 0),
+            Direction.DOWN: (0, 1),
+            Direction.LEFT: (-1, 0),
+            Direction.UP: (0, -1),
+        }[self.direction]
+        rx, ry = -fy, fx
+        lx, ly = fy, -fx
 
-        dir_l = self.direction == Direction.LEFT
-        dir_r = self.direction == Direction.RIGHT
-        dir_u = self.direction == Direction.UP
-        dir_d = self.direction == Direction.DOWN
-
-        food_straight = (
-            (dir_r and self.food.x > head.x) or
-            (dir_l and self.food.x < head.x) or
-            (dir_u and self.food.y < head.y) or
-            (dir_d and self.food.y > head.y)
-        )
-        food_right = (
-            (dir_u and self.food.x > head.x) or
-            (dir_d and self.food.x < head.x) or
-            (dir_l and self.food.y < head.y) or
-            (dir_r and self.food.y > head.y)
-        )
-        food_left = (
-            (dir_d and self.food.x > head.x) or
-            (dir_u and self.food.x < head.x) or
-            (dir_r and self.food.y < head.y) or
-            (dir_l and self.food.y > head.y)
-        )
-
-        dx = (self.food.x - head.x) / self.board_width
-        dy = (self.food.y - head.y) / self.board_height
+        vx = (self.food.x - self.head.x) / BLOCK_SIZE
+        vy = (self.food.y - self.head.y) / BLOCK_SIZE
+        ahead = vx * fx + vy * fy
+        side = vx * rx + vy * ry
 
         state = [
-            (dir_r and self.is_collision(point_r)) or
-            (dir_l and self.is_collision(point_l)) or
-            (dir_u and self.is_collision(point_u)) or
-            (dir_d and self.is_collision(point_d)),
-
-            (dir_u and self.is_collision(point_r)) or
-            (dir_d and self.is_collision(point_l)) or
-            (dir_l and self.is_collision(point_u)) or
-            (dir_r and self.is_collision(point_d)),
-
-            (dir_d and self.is_collision(point_r)) or
-            (dir_u and self.is_collision(point_l)) or
-            (dir_r and self.is_collision(point_u)) or
-            (dir_l and self.is_collision(point_d)),
-
-            dir_l, dir_r, dir_u, dir_d,
-
-            food_straight, food_right, food_left,
-
-            dx, dy
+            self._ray(fx, fy),
+            self._ray(rx, ry),
+            self._ray(lx, ly),
+            ahead / GRID_WIDTH,
+            side / GRID_WIDTH,
+            1.0 if ahead > 0 else 0.0,
+            1.0 if side > 0 else 0.0,
+            1.0 if side < 0 else 0.0,
         ]
-
         return np.array(state, dtype=float)
     
     def _handle_events(self):
+        """Gestiona cierre de ventana y controles de velocidad/pausa en directo."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -186,24 +167,26 @@ class SnakeGame:
             self.clock.tick(10)
 
     def step(self, action):
-
         self.steps += 1
         self.steps_without_food += 1
 
         if self.render:
             self._handle_events()
 
+        dist_before = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
         self._move(action)
+        dist_after = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
+        self.shaping += 1.0 if dist_after < dist_before else -1.5
         self.snake.insert(0, self.head)
 
-        curr_dist = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
-        if curr_dist < self.prev_dist:
-            self.approach_score += 2.0
+        current_distance = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
+        if current_distance < self.prev_distance:
+            self.distance_reward += 2.0   # Premia ir directo
         else:
-            self.approach_score -= 3.0
-        self.prev_dist = curr_dist
+            self.distance_reward -= 3.0
+        self.prev_distance = current_distance
 
-        max_steps = 100 * len(self.snake)
+        max_steps = 60 * len(self.snake)
         if self.is_collision() or self.steps_without_food > max_steps:
             return True, self.score
 
@@ -213,7 +196,7 @@ class SnakeGame:
             if self.score > self.best_score:
                 self.best_score = self.score
             self._place_food()
-            self.prev_dist = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
+            self.prev_distance = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
         else:
             self.snake.pop()
 
@@ -227,11 +210,11 @@ class SnakeGame:
         clock_wise = [Direction.RIGHT, Direction.DOWN, Direction.LEFT, Direction.UP]
         idx = clock_wise.index(self.direction)
 
-        if action == 0:
+        if action == 0:    # Seguir recto
             new_dir = clock_wise[idx]
-        elif action == 1:
+        elif action == 1:  # Girar 90° derecha
             new_dir = clock_wise[(idx + 1) % 4]
-        elif action == 2:
+        elif action == 2:  # Girar 90° izquierda
             new_dir = clock_wise[(idx - 1) % 4]
 
         self.direction = new_dir
@@ -250,8 +233,7 @@ class SnakeGame:
         self.head = Point(x, y)
 
     def get_fitness(self):
-        fitness = (self.score ** 2) * 1000 + (self.score * 500) + self.approach_score - (self.steps * 0.2)
-        return max(0.0, fitness)
+        return (self.score ** 2) * SCORE_W + (self.score * 500) + SHAPING_W * self.shaping
     
     def _draw_snake(self):
         total = len(self.snake)
@@ -303,8 +285,8 @@ class SnakeGame:
             (f"Generación:  {self.generation}", WHITE),
             (f"Individuo:    #{self.individual}", GRAY),
             (f"Manzanas:   {self.score}", SNAKE_HEAD),
-            (f"Récord:        {self.best_score}", ACCENT_YELLOW),
-            (f"Fitness:       {self.get_fitness()}", WHITE),
+            (f"Récord:       {self.best_score}", ACCENT_YELLOW),
+            (f"Fitness:      {int(self.get_fitness())}", WHITE),
         ]
         for text_str, color in metrics:
             surf = self.font_main.render(text_str, True, color)
@@ -312,7 +294,7 @@ class SnakeGame:
             y += 26
 
         y += 8
-        max_steps = 100 * len(self.snake)
+        max_steps = 60 * len(self.snake)
         energy_ratio = max(0.0, 1.0 - (self.steps_without_food / max_steps))
         lbl_energy = self.font_small.render("Energía restante:", True, GRAY)
         self.display.blit(lbl_energy, (x_pad, y))
@@ -327,7 +309,7 @@ class SnakeGame:
         self.display.blit(lbl_sens, (x_pad, y))
         y += 20
 
-        dangers = [("Recto", state[0]), ("Der", state[1]), ("Izq", state[2])]
+        dangers = [("Recto", state[0] >= 1.0), ("Der", state[1] >= 1.0), ("Izq", state[2] >= 1.0)]
         for idx, (name, active) in enumerate(dangers):
             bx = x_pad + idx * 68
             box_color = DANGER_RED if active else BG_COLOR
