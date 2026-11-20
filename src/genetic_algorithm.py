@@ -1,5 +1,6 @@
 import numpy as np
-from src.neural_network import NeuralNetwork
+import os
+from neural_network import NeuralNetwork
 
 
 class GeneticAlgorithm:
@@ -9,7 +10,7 @@ class GeneticAlgorithm:
         elite_fraction=0.2,
         mutation_rate=0.05,
         mutation_strength=0.2,
-        input_size=11,
+        input_size=12,
         hidden_size=16,
         output_size=3,
     ):
@@ -56,17 +57,13 @@ class GeneticAlgorithm:
             child_net.set_weights(weights.copy())
             new_population.append(child_net)
 
-        # Rellenar el resto mediante Cruce y Mutación
         while len(new_population) < self.population_size:
-            # Elegir dos padres aleatorios dentro de la élite
             idx1, idx2 = np.random.choice(len(elite_chromosomes), size=2, replace=False)
             parent1 = elite_chromosomes[idx1]
             parent2 = elite_chromosomes[idx2]
 
-            # Cruce uniforme (50% genes de cada padre)
             child_weights = self._crossover(parent1, parent2)
 
-            # Mutación gaussiana
             child_weights = self._mutate(child_weights)
 
             child_net = NeuralNetwork(self.input_size, self.hidden_size, self.output_size)
@@ -90,6 +87,7 @@ class GeneticAlgorithm:
 
     def save_best_model(self, filepath="models/best_brain.npy"):
         if self.best_overall_weights is not None:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             np.save(filepath, self.best_overall_weights)
 
     def load_model(self, filepath="models/best_brain.npy"):

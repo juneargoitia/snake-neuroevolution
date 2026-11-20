@@ -1,11 +1,10 @@
 import sys
-from src.game import SnakeGame
-from src.genetic_algorithm import GeneticAlgorithm
-from src.plotter import plot_evolution
+from game import SnakeGame
+from genetic_algorithm import GeneticAlgorithm
+from plotter import plot_evolution
 
 
 def train(generations=100, population_size=150):
-    """Entrena la población sin renderizado (máxima velocidad) y guarda el mejor modelo."""
     ga = GeneticAlgorithm(
         population_size=population_size,
         elite_fraction=0.15,
@@ -56,7 +55,6 @@ def train(generations=100, population_size=150):
 
 
 def watch(speed=18):
-    """Carga el mejor cerebro guardado y muestra una partida en vivo con su panel de sensores."""
     ga = GeneticAlgorithm()
     best_brain = ga.load_model("models/best_brain.npy")
 

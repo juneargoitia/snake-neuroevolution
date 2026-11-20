@@ -58,32 +58,35 @@ class SnakeGame:
         self.reset()
     
     def set_training_info(self, generation, best_score, individual=1):
-        """Permite a main.py pasar datos de la evolución para mostrarlos en pantalla."""
         self.generation = generation
         self.best_score = best_score
         self.individual = individual
 
     def reset(self):
-        """Reinicia el juego al estado inicial."""
-        self.direction = Direction.RIGHT
+        self.direction = random.choice(list(Direction))
         
         start_x = (GRID_WIDTH // 2) * BLOCK_SIZE
         start_y = (GRID_HEIGHT // 2) * BLOCK_SIZE
         self.head = Point(start_x, start_y)
-        self.snake = [
-            self.head,
-            Point(self.head.x - BLOCK_SIZE, self.head.y),
-            Point(self.head.x - (2 * BLOCK_SIZE), self.head.y)
-        ]
+
+        if self.direction == Direction.RIGHT:
+            self.snake = [self.head, Point(start_x - BLOCK_SIZE, start_y), Point(start_x - 2 * BLOCK_SIZE, start_y)]
+        elif self.direction == Direction.LEFT:
+            self.snake = [self.head, Point(start_x + BLOCK_SIZE, start_y), Point(start_x + 2 * BLOCK_SIZE, start_y)]
+        elif self.direction == Direction.DOWN:
+            self.snake = [self.head, Point(start_x, start_y - BLOCK_SIZE), Point(start_x, start_y - 2 * BLOCK_SIZE)]
+        else:
+            self.snake = [self.head, Point(start_x, start_y + BLOCK_SIZE), Point(start_x, start_y + 2 * BLOCK_SIZE)]
 
         self.score = 0
         self.steps = 0
         self.steps_without_food = 0
+        self.approach_score = 0.0
         self.food = None
         self._place_food()
+        self.prev_dist = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
 
     def _place_food(self):
-        """Coloca la manzana en una celda libre aleatoria."""
         while True:
             x = random.randint(0, GRID_WIDTH - 1) * BLOCK_SIZE
             y = random.randint(0, GRID_HEIGHT - 1) * BLOCK_SIZE
@@ -92,24 +95,15 @@ class SnakeGame:
                 break
 
     def is_collision(self, pt=None):
-        """Comprueba si un punto choca con los bordes o con el cuerpo."""
         if pt is None:
             pt = self.head
-        # Choque con paredes
         if pt.x >= self.board_width or pt.x < 0 or pt.y >= self.board_height or pt.y < 0:
             return True
-        # Choque consigo misma
         if pt in self.snake[1:]:
             return True
         return False
 
     def get_state(self):
-        """
-        Devuelve el vector de 11 sensores (0 o 1) para la Red Neuronal:
-        [peligro_recto, peligro_der, peligro_izq,
-            dir_izq, dir_der, dir_arriba, dir_abajo,
-            comida_izq, comida_der, comida_arriba, comida_abajo]
-        """
         head = self.head
         point_l = Point(head.x - BLOCK_SIZE, head.y)
         point_r = Point(head.x + BLOCK_SIZE, head.y)
@@ -121,42 +115,54 @@ class SnakeGame:
         dir_u = self.direction == Direction.UP
         dir_d = self.direction == Direction.DOWN
 
+        food_straight = (
+            (dir_r and self.food.x > head.x) or
+            (dir_l and self.food.x < head.x) or
+            (dir_u and self.food.y < head.y) or
+            (dir_d and self.food.y > head.y)
+        )
+        food_right = (
+            (dir_u and self.food.x > head.x) or
+            (dir_d and self.food.x < head.x) or
+            (dir_l and self.food.y < head.y) or
+            (dir_r and self.food.y > head.y)
+        )
+        food_left = (
+            (dir_d and self.food.x > head.x) or
+            (dir_u and self.food.x < head.x) or
+            (dir_r and self.food.y < head.y) or
+            (dir_l and self.food.y > head.y)
+        )
+
+        dx = (self.food.x - head.x) / self.board_width
+        dy = (self.food.y - head.y) / self.board_height
+
         state = [
-            # 1. Peligro recto
             (dir_r and self.is_collision(point_r)) or
             (dir_l and self.is_collision(point_l)) or
             (dir_u and self.is_collision(point_u)) or
             (dir_d and self.is_collision(point_d)),
 
-            # 2. Peligro a la derecha relativa
             (dir_u and self.is_collision(point_r)) or
             (dir_d and self.is_collision(point_l)) or
             (dir_l and self.is_collision(point_u)) or
             (dir_r and self.is_collision(point_d)),
 
-            # 3. Peligro a la izquierda relativa
             (dir_d and self.is_collision(point_r)) or
             (dir_u and self.is_collision(point_l)) or
             (dir_r and self.is_collision(point_u)) or
             (dir_l and self.is_collision(point_d)),
 
-            # 4-7. Dirección actual
-            dir_l,
-            dir_r,
-            dir_u,
-            dir_d,
+            dir_l, dir_r, dir_u, dir_d,
 
-            # 8-11. Posición relativa de la comida
-            self.food.x < head.x,  # comida a la izquierda
-            self.food.x > head.x,  # comida a la derecha
-            self.food.y < head.y,  # comida arriba
-            self.food.y > head.y   # comida abajo
+            food_straight, food_right, food_left,
+
+            dx, dy
         ]
 
-        return np.array(state, dtype=int)
+        return np.array(state, dtype=float)
     
     def _handle_events(self):
-        """Gestiona cierre de ventana y controles de velocidad/pausa en directo."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -180,33 +186,34 @@ class SnakeGame:
             self.clock.tick(10)
 
     def step(self, action):
-        """
-        Ejecuta un paso del juego dada una acción de la IA:
-        action: 0 = recto, 1 = girar derecha, 2 = girar izquierda
-        Devuelve: (game_over, score)
-        """
+
         self.steps += 1
         self.steps_without_food += 1
 
         if self.render:
             self._handle_events()
 
-        # Actualizar dirección
         self._move(action)
         self.snake.insert(0, self.head)
 
-        # Comprobar muerte (choque o bucle infinito sin comer)
+        curr_dist = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
+        if curr_dist < self.prev_dist:
+            self.approach_score += 2.0
+        else:
+            self.approach_score -= 3.0
+        self.prev_dist = curr_dist
+
         max_steps = 100 * len(self.snake)
         if self.is_collision() or self.steps_without_food > max_steps:
             return True, self.score
 
-        # Comprobar si comió manzana
         if self.head == self.food:
             self.score += 1
             self.steps_without_food = 0
             if self.score > self.best_score:
                 self.best_score = self.score
             self._place_food()
+            self.prev_dist = abs(self.head.x - self.food.x) + abs(self.head.y - self.food.y)
         else:
             self.snake.pop()
 
@@ -217,16 +224,14 @@ class SnakeGame:
         return False, self.score
 
     def _move(self, action):
-        """Calcula la nueva posición de la cabeza según la acción."""
-        # Orden horario: RIGHT(0), DOWN(1), LEFT(2), UP(3)
         clock_wise = [Direction.RIGHT, Direction.DOWN, Direction.LEFT, Direction.UP]
         idx = clock_wise.index(self.direction)
 
-        if action == 0:    # Seguir recto
+        if action == 0:
             new_dir = clock_wise[idx]
-        elif action == 1:  # Girar 90° derecha
+        elif action == 1:
             new_dir = clock_wise[(idx + 1) % 4]
-        elif action == 2:  # Girar 90° izquierda
+        elif action == 2:
             new_dir = clock_wise[(idx - 1) % 4]
 
         self.direction = new_dir
@@ -245,11 +250,10 @@ class SnakeGame:
         self.head = Point(x, y)
 
     def get_fitness(self):
-        """Calcula la puntuación de aptitud para el Algoritmo Genético."""
-        return (self.score ** 2) * 1000 + (self.score * 500) + (self.steps * 0.5)
+        fitness = (self.score ** 2) * 1000 + (self.score * 500) + self.approach_score - (self.steps * 0.2)
+        return max(0.0, fitness)
     
     def _draw_snake(self):
-        """Dibuja la serpiente con degradado de color y ojos orientados."""
         total = len(self.snake)
         for i, pt in enumerate(self.snake):
             if i == 0:
@@ -264,7 +268,6 @@ class SnakeGame:
             rect = pygame.Rect(pt.x + 1, pt.y + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2)
             pygame.draw.rect(self.display, color, rect, border_radius=5)
 
-            # Dibujar ojos en la cabeza
             if i == 0:
                 eye_r = 2
                 if self.direction == Direction.RIGHT:
@@ -279,14 +282,12 @@ class SnakeGame:
                 pygame.draw.circle(self.display, BG_COLOR, e2, eye_r)
 
     def _draw_food(self):
-        """Dibuja una manzana redondeada con un pequeño tallo verde."""
         center = (self.food.x + BLOCK_SIZE // 2, self.food.y + BLOCK_SIZE // 2)
         pygame.draw.circle(self.display, FOOD_RED, center, BLOCK_SIZE // 2 - 2)
         leaf_rect = pygame.Rect(self.food.x + BLOCK_SIZE // 2, self.food.y + 2, 5, 4)
         pygame.draw.ellipse(self.display, FOOD_LEAF, leaf_rect)
 
     def _draw_panel(self):
-        """Dibuja el panel lateral con estadísticas y sensores en vivo."""
         panel_x = self.board_width
         pygame.draw.rect(self.display, PANEL_COLOR, (panel_x, 0, PANEL_WIDTH, self.board_height))
         pygame.draw.line(self.display, BORDER_COLOR, (panel_x, 0), (panel_x, self.board_height), 2)
@@ -294,12 +295,10 @@ class SnakeGame:
         x_pad = panel_x + 18
         y = 18
 
-        # Título
         title = self.font_title.render("NEURO-SNAKE", True, ACCENT_BLUE)
         self.display.blit(title, (x_pad, y))
         y += 38
 
-        # Métricas principales
         metrics = [
             (f"Generación:  {self.generation}", WHITE),
             (f"Individuo:    #{self.individual}", GRAY),
@@ -312,7 +311,6 @@ class SnakeGame:
             self.display.blit(surf, (x_pad, y))
             y += 26
 
-        # Barra de energía (pasos restantes antes de morir de hambre)
         y += 8
         max_steps = 100 * len(self.snake)
         energy_ratio = max(0.0, 1.0 - (self.steps_without_food / max_steps))
@@ -324,7 +322,6 @@ class SnakeGame:
         pygame.draw.rect(self.display, bar_color, (x_pad, y, int((PANEL_WIDTH - 36) * energy_ratio), 10), border_radius=4)
         y += 24
 
-        # Visualizador de sensores en tiempo real
         state = self.get_state()
         lbl_sens = self.font_small.render("Sensores de peligro:", True, GRAY)
         self.display.blit(lbl_sens, (x_pad, y))
@@ -339,7 +336,6 @@ class SnakeGame:
             self.display.blit(txt, (bx + 12, y + 4))
         y += 42
 
-        # Controles en vivo
         pygame.draw.line(self.display, BORDER_COLOR, (x_pad, y), (panel_x + PANEL_WIDTH - 18, y), 1)
         y += 12
         status = "PAUSADO (Espacio)" if self.paused else f"Velocidad: {self.speed} FPS"
@@ -349,10 +345,8 @@ class SnakeGame:
         self.display.blit(ctrl2, (x_pad, y + 18))
 
     def _update_ui(self):
-        """Dibuja el tablero, la serpiente y la manzana."""
         self.display.fill(BG_COLOR)
 
-        # Cuadrícula sutil de fondo
         for x in range(0, self.board_width, BLOCK_SIZE):
             pygame.draw.line(self.display, GRID_COLOR, (x, 0), (x, self.board_height))
         for y in range(0, self.board_height, BLOCK_SIZE):
@@ -365,7 +359,6 @@ class SnakeGame:
         pygame.display.flip()
 
 
-# --- BLOQUE DE PRUEBA (Se ejecuta solo si lanzas este archivo directamente) ---
 if __name__ == '__main__':
     game = SnakeGame(render=True, speed=12)
     game.set_training_info(generation=1, best_score=0, individual=1)
@@ -373,7 +366,6 @@ if __name__ == '__main__':
 
     while not game_over:
         state = game.get_state()
-        # Acción aleatoria para probar que todo funciona
         action = random.choice([0, 1, 2])
         game_over, score = game.step(action)
 
